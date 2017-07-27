@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+	<script src="https://d3js.org/d3.v3.min.js"></script> 
+    <style>
+		
+	h2 {		
+		text-align:center;
+	}
+	
+	h3 {
+		margin-top: 10px;
+		margin-bottom: 5px;
+	}
+	
+	.chart {
+		margin: 100px 100px 100px 100px;
+	}
+	
+	.buttons {
+		padding: 5px;				
+		font: 18px sans-serif;		
+		background-color: lightgrey;	
+		border: 0px;
+		border-radius: 5px;
+		margin: 2px 2px 2px 2px;
+		text-align:center;
+		display: inline-block;
+	}
+	
+	.buttons_a, .buttons_b {
+		padding: 5px;
+	}
+	
+	.navigator, .information {
+		font: 16px sans-serif;
+		color: black;
+		fill: black;
+		margin: 5px 200px 5px 200px;
+		height: 300px;
+		width: 1200px;
+		text-align: left;
+	}
+	
+	ul {
+		margin: 10px;
+	}
+	
+	.chart rect {
+	  opacity: .8;
+	}
+	
+	.axis {
+		font: 14px sans-serif;
+		color: black;
+		fill: black;
+	}
+	
+	.grid line {
+		fill:none;
+		stroke: #ddd;
+		stroke: lightgrey;
+		stroke-opacity: 0.7;
+		shape-rendering: crispEdges;
+	}
+	
+	.tooltip {	
+		position:absolute;
+		text-align: center;			
+		width: 220px;						
+		height: 80px;					
+		padding: 1px;				
+		font: 12px sans-serif;		
+		background: lightgrey;	
+		border: 0px;		
+		border-radius: 5px;			
+		pointer-events: none;			
+	}
+	
+	.legend {
+		font: 12px sans-serif;
+		text-anchor:end;
+	}
+    </style>
+    <script type="text/javascript">  
+      function draw(flights_data) {
+	  
+        "use strict";
+		
+        var margin = 150,
+            width = 1400 - margin,
+            height = 400 - margin,
+			barHeight = 50;
+
+		//colors for the bar taken from colorbrewer2.org
+		var colors = ['#1f78b4', '#fb9a99', "#b2df8a", '#33a02c' ];
+		
+		d3.select("body").append("h2").text("U.S Flight Delay Data 2016");		
+		
+		var init_idx = 0;		
+		
+		var navigator = d3.select('body')
+			.append('div')
+			.attr('class', 'navigator')
+			.html("The visualization contains data reported by U.S flight carriers on delayed flights for the entire 2016 year.<ul><li>A flight is considered delayed if it arrives 15 minutes or more after it's scheduled time</li><li>12 carriers must report flight data due to their gross revenue.</li><li>The 6 carriers in focus average more than 39,000 flights per month</li></ul>");
+		
+		var info_h3 = navigator
+			.append('h3');
+				
+			
+		var info_desc = navigator
+			.append('p');
+			
+		var buttons_a = navigator.append('div').attr('class','buttons_a');	
+		
+		
+		var prev_button = buttons_a
+			.append('div')
+			.attr('class', 'buttons')
+			.style('color', 'white')
+			.text("Previous");
+		
+		var next_button = buttons_a
+			.append('div')
+			.attr('class', 'buttons')
+			.text("Next");
+			
+
+		d3.selectAll('.buttons').on('click', function (d) {
+			if (this.innerText == 'Next') {
+				next_interval(1);
+			}
+			else if (init_idx > 0) {
+				next_interval(-1);
+			}		
+			
+		});
+		
+		var months = ['ALL', 'January', 'February', 'March', 'April','May','June','July','August','September','October','November','December'];
+		
+		
+		function key_func(d) {
+			
+			return d['key'];
+		}
+		
+		
+		//gets nested data by carrier name and aggregates
+		function agg_carrier_data(leaves) {
+			//sum the arr_flights
+
+			var total_flights = d3.sum(leaves, function (d) {
+				return d['total_flights'];
+			});	
+			
+			var num_airports = d3.sum(leaves, function (d) {
+				return d['total_airports'];
+			});
+			
+			var carrier_delay = d3.sum(leaves, function (d) {
+				return d['total_carrier_delay_mins'];
+			});			
+			
+			var weather_delay = d3.sum(leaves, function (d) {
+				return d['total_weather_delay_mins'];
+			});
+			
+			var nas_delay = d3.sum(leaves, function (d) {
+				return d['total_nas_delay_mins'];
+			});
+			
+			var security_delay = d3.sum(leaves, function (d) {
+				return d['total_security_delay_mins'];
+			});
+			
+							// return the aggregatioons
+			return {
+				'carrier_name': leaves[0]["carrier_name"],
+				'total_flights': total_flights,
+				'num_airports': num_airports/leaves.length,
+				'carrier_delay': carrier_delay/total_flights,
+				'weather_delay': weather_delay/total_flights,
+				'nas_delay': nas_delay/total_flights,
+				'security_delay': security_delay/total_flights
+			};
+		
+		};
+		
+		var init_animation_order = ["carrier_delay","nas_delay","weather_delay","security_delay"];
+		var init_animation_title = ["Air Carrier","National Aviation System (NAS)", "Extreme Weather","Security"];
+		var init_animation_buttons = ["Air Carrier","NAS", "Extreme Weather", "Security"];
+		
+		var init_animation_explain = ["<ul><li>Reported when the cause of the delay was due to circumstances within the airline's control (e.g. maintenance or crew problems, aircraft cleaning, baggage loading, fueling, etc.)</li><li><b>Air carrier delays are responsible for the most amount of time delayed.</b></li><li>Express Jet has the highest amount of time delayed per flight, while having the fewest amount of total flights, yet while operating from the 2nd most airports</li><li>What this suggests is Express Jet is underperforming in areas within it's operational control, and causing longer delays per flight than it's competitors. Perhaps their operation is stretched too far for the volume of flights it is handling, especially in comparison to Southwest Airlines</li></ul>",
+									  "<ul><li>Delays attributable to the national aviation system that refer to a broad set of conditions, such as non-extreme weather conditions, airport operations, heavy traffic volume, and air traffic control</li><li>Due to the nature of this type of delay it's not surprising to see somewhat similar results for each carrier. If an airport that is afflicted with weather circumstances, or high volume of operations and is shared amongst carriers there could be even growth of NAS reported delays</li></ul>",
+									  "<ul><li>Significant meteorological conditions (actual or forecasted) that, in the judgment of the carrier, delays the operation of a flight such as tornado, blizzard or hurricane</li><li>It's interesting to note this reason is in the carriers judgement. Perhaps you would choose American Airlines during Hurricane season, as it is most willing to delay flights for flight safety. It is also affected by geography of where the airlines operate</li><li>In the last slide, you can explore the weather data by month</li></ul>",
+									  "<ul><li>Delays caused by evacuation of a terminal or concourse, re-boarding of aircraft because of security breach, inoperative screening equipment and/or long lines in excess of 29 minutes at screening areas.</li>Perhaps thankfully, security delays are the fewest cause of delay from the groups, with Express Jet astonishlingly having 0 reports<li>The ammount of time delayed per flight is neglible</li><li>Although it may be necessary to arrive to the airport earlier, the TSA are not causing plane delays</li></ul>"];
+		
+		var init_animation_desc = [ "The cause of the delay was due to circumstances within the airline's control (e.g. maintenance or crew problems, aircraft cleaning, baggage loading, fueling, etc.).",
+									"Delays and cancellations attributable to the national aviation system that refer to a broad set of conditions, such as non-extreme weather conditions, airport operations, heavy traffic volume, and air traffic control",
+									"Significant meteorological conditions (actual or forecasted) that, in the judgment of the carrier, delays or prevents the operation of a flight such as tornado, blizzard or hurricane",
+									"Delays or cancellations caused by evacuation of a terminal or concourse, re-boarding of aircraft because of security breach, inoperative screening equipment and/or long lines in excess of 29 minutes at screening areas."];
+		
+		
+				
+		function total_minutes(data, keys) {
+			var sum = 0;
+			for (var i = 0; i < keys.length; i++) {	
+				sum +=  data.values[keys[i]];
+			}
+			return sum;
+		};
+		
+		function get_nested(data) {
+		
+			var nested = d3.nest()
+				.key(function(d) {
+					return d['carrier'];
+				})
+				.rollup(agg_carrier_data)							
+				.entries(data);
+			
+			return nested;
+		}
+		
+		//want the following to be accessible throughout
+		var nested = get_nested(flights_data);
+		var stack_keys = Object.keys(nested[0].values);
+	
+		//perform initial sort for y-axis and carrier keys
+		nested.sort(function(a,b) { return total_minutes(b,['carrier_delay']) - total_minutes(a,['carrier_delay']); });
+				
+		
+		var carrier_keys = nested.map(function(d) { 
+			return d.key;
+		});
+		
+		var carrier_names = nested.map(function(d) { 
+			return d.values["carrier_name"];
+		});
+		
+		function get_nested_data(carrier_key, carrier_value) {
+			for (var i = 0; i < nested.length; i++) {
+				if (nested[i].key == carrier_key) {
+					return nested[i].values[carrier_value];
+				}
+			}
+		}
+		
+		//main chart area
+	    var svg = d3.select("body")
+            .append("svg")
+            .attr("width", width + margin)
+            .attr("height", height + margin	)
+            .append('g')
+            .attr('class', 'chart');
+		
+
+		// y axis is static and defined outside loop	
+		var y_scale = d3.scale.ordinal()
+				.domain(carrier_names)
+				.rangeRoundBands([0, barHeight * nested.length]);
+	
+			
+		var y_axis = d3.svg.axis()
+			.scale(y_scale)
+			.orient("left")
+			.tickSize(1);
+	
+		var x_scale = d3.scale.linear()
+			.domain([0, total_minutes(nested[0], stack_keys)])
+			.range([0,width]);	
+		
+		// Axises
+		var x_axis = d3.svg.axis()
+			.scale(x_scale)
+			.orient("bottom")
+			.ticks(10)
+			.tickSize(1);
+						
+					
+		var gridlines = d3.svg.axis()
+			.scale(x_scale)
+			.orient("bottom")
+			.ticks(10)
+			.tickSize(-height,0,0)
+			.tickFormat("");
+			
+		d3.select('.chart') //adding remove to clear previous grid lines
+				.append('g') //group
+				.attr('class','grid')
+				.attr('transform', 'translate(' + margin + ','+ barHeight * nested.length + ')')
+				.call(gridlines);
+			
+
+		d3.select('.chart')
+				.append('g') //group
+				.attr('class','x axis')
+				.attr('transform', 'translate(' + margin + ','+ barHeight * nested.length + ')')
+				.call(x_axis);
+	
+	
+		d3.select('.chart')
+				.append('g')
+				.attr('class','y axis')
+				.attr("transform", "translate(" + margin + ",0)")
+				.call(y_axis);
+				
+		d3.select('.chart')
+			.append('text')
+			.attr('transform', 'translate(' + width/2 + ','+ (height + margin - 50) + ')')
+			.text('Total Delay (mins) per Flight');
+		
+		// tool tip defined outside function
+		var tooltip =d3.select("body").append("div")
+			.attr("class", "tooltip")
+			.style("opacity", 0);		
+			
+		var formatRound = d3.format(".0f");
+		var formatLarge = d3.format(",d");
+		
+		function animate(indices) { 
+			
+			var keys = [];
+			var legend_titles = [];
+			
+			for (var i = 0; i < indices.length; i++) {
+				keys.push(init_animation_order[indices[i]]);
+				legend_titles.push(init_animation_title[indices[i]]);				
+			}
+
+			
+			var extent = d3.extent(nested, function(d) { return total_minutes(d, keys); });
+		
+			x_scale = d3.scale.linear()
+				.domain([0, extent[1]])
+				.range([0,width-margin]);
+						
+			
+			var new_x =  d3.svg.axis()
+				.scale(x_scale)
+				.orient("bottom")
+				.ticks(10)
+				.tickSize(1);
+				
+			var new_grid = d3.svg.axis()
+				.scale(x_scale)
+				.orient("bottom")
+				.ticks(10)
+				.tickSize(-height-margin,0,0)
+				.tickFormat("");
+			
+	
+			d3.selectAll("g .x.axis")
+				.transition()
+				.duration(200)
+				.call(new_x);
+			
+			d3.selectAll("g .grid")
+				.transition()
+				.duration(200)
+				.call(new_grid)
+			
+			
+			function makeData(keys, data) {
+				return keys.map(
+					function(stack_part) {
+						return data.map(
+							function(d) {
+								return { x: d["key"], y: +d.values[stack_part], stack_part: stack_part};
+							})
+					});
+			}
+	
+			var stack = d3.layout.stack();
+		
+			var stacked = stack(makeData(keys, nested));
+			
+			svg.selectAll('.stack').remove();
+						
+			var stacks = svg
+				.selectAll(".stack")
+				.data(stacked)
+				.enter()
+				.append("g")
+				.attr("class", "stack")
+				.attr("fill", function(d, i) {  return colors[indices[i]]; })
+				.selectAll('rect')
+				.data(function(d) { return d; })
+				.enter()
+				.append("rect")
+				.attr("transform", function(d, i) { return "translate(" + (margin + x_scale(d.y0)) + "," + i * barHeight + ")"; })
+				.attr("width", function(d) {  return x_scale(d.y); }) //
+				.attr("height", barHeight - 1)
+				.on("mouseover", function(d, i) {		
+					tooltip.transition()		
+						.duration(200)		
+						.style("opacity", 0.8);
+					
+					tooltip.html("Delay:<b>"+ d.stack_part + "</b><br/>Total Delay (mins)/ Flight:<b>"  + formatRound(d.y) + "</b><br/>Carrier:<b>" + get_nested_data(d.x, "carrier_name") + "</b>"
+						+ "</b><br/>Total Flights:<b>" + formatLarge(get_nested_data(d.x, "total_flights")) + "</b>" + "</b><br/>Number of Airports:<b>" + formatRound(get_nested_data(d.x, "num_airports"))+ "</b>")
+						.style("left", width + 50+ "px")
+						.style("top", height + 100 + "px")
+						//.style("left", (x_scale(d.y0) + x_scale(d.y)) + 20 + "px")
+						//.style("top", margin/2 + ((i) * barHeight) + "px");
+						
+				})					
+				.on("mouseout", function(d) {		
+					tooltip.transition()		
+						.duration(500)		
+						.style("opacity", 0);		
+				});
+			
+			svg.selectAll('.legend').remove();
+			
+			var legend = svg
+				.append('g')
+				.attr('class', 'legend')				
+				.selectAll('g')
+				.data(legend_titles)
+				.enter()
+				.append('g')
+				.attr('class', 'legend_item')
+				.attr("transform", function(d, i) { return "translate(0," + i * 20 + ")"; });
+
+			legend.append("rect")
+				.attr("x", width + margin - 20)
+				.attr("y", height - (margin/2) -5)
+				.attr("width", 19)
+				.attr("height", 19)
+				.attr("fill", function(d, i) {  return colors[indices[i]]; });
+
+			legend.append("text")
+				.attr("x", width + margin - 35)
+				.attr("y", height - (margin/2))
+				.attr("dy", "0.64em")
+				.text(function(d) { return d; });
+		};
+			
+		
+		next_interval(init_idx);
+		// sets the interval for initial  animation	
+
+			
+		function next_interval(next_int) {
+			
+			init_idx = init_idx + next_int;			
+
+			
+			if (init_idx == 0) {
+				prev_button.style('color', 'white')
+			}
+			else {
+				prev_button.style('color', 'black');
+			}
+			
+			if (init_idx >= init_animation_order.length) {
+				
+				//navigator updates							
+				// remove prev and next button, and info descriptions
+				prev_button.remove();
+				next_button.remove();
+				info_desc.remove();
+				
+				//update title
+				info_h3.text('Compare By Month');
+				
+				// create month buttons
+					
+				var month_buttons = buttons_a
+					.selectAll('.buttons')
+					.data(months)
+					.enter()
+					.append('div')
+					.attr('class', 'buttons')
+					.text(function (d) { return d; });
+				
+				navigator.append('h3').text('Select One or More Category');
+				
+				var buttons_b = navigator.append('div').attr('class','buttons_b')
+				
+				var stack_buttons = buttons_b
+					.selectAll('.buttons')
+					.data(init_animation_buttons)
+					.enter()
+					.append('div')
+					.attr('class', 'buttons')
+					.text(function (d) { return d; });
+					
+				d3.selectAll('.buttons').on('click', function (d) {					
+					var selection = this.innerText;
+					var tmp_ind = [];
+					
+					//get the highlighted categories first
+					buttons_b.selectAll('.buttons').each(function (d,i) {
+						if (this.style.backgroundColor != '') {
+							tmp_ind.push(i);
+						}
+					});
+					
+					//if button clicked is a month
+					if (months.indexOf(selection) != -1) {
+						
+						// behavior is to have only 1 month at a time selected
+						d3.select('.buttons_a').selectAll('.buttons')
+							.transition()
+							.duration(200)
+							.style('background-color', 'lightgrey');
+						
+						d3.select(this)
+							.transition()
+							.duration(200)
+							.style('background-color', 'lightBlue');
+											
+						//if all selected, get all data, otherwise filter by month
+						if (selection == 'ALL') {
+							nested = get_nested(flights_data);
+							nested.sort(function (a,b) {  return carrier_keys.indexOf(a['key']) - carrier_keys.indexOf(b['key']) });
+						}
+						else {
+							nested = get_nested(flights_data.filter(function(d) { 
+								return d.month == (months.indexOf(selection));
+							}));
+							
+							nested.sort(function (a,b) {  return carrier_keys.indexOf(a['key']) - carrier_keys.indexOf(b['key']) });
+						}
+					}
+					else {
+											
+						//for what is selected, if there is no in line style attribute, change color and push value onto tmp_ind
+						if (this.style.backgroundColor == '') {
+							d3.select(this)
+								.transition()
+								.duration(200)
+								.style('background-color', 'lightBlue');
+							
+							tmp_ind.push(init_animation_buttons.indexOf(this.innerText));	
+						}
+						//for what is selected, if there is an in line style attribute, change color and pop value from tmp_ind
+						else {
+							d3.select(this)
+								.transition()
+								.duration(200)
+								.style('background-color', null);							
+							
+							tmp_ind.pop(init_animation_buttons.indexOf(this.innerText));	
+						}
+					}
+					
+					//if no categories selected, show all data	
+					
+					if (tmp_ind.length == 0) {
+						animate([0,1,2,3]);
+					}
+					else {
+						animate(tmp_ind);
+					}
+					
+				});
+				
+				// set information area at bottom of page
+				var information = d3.select('body')
+					.append('div')
+					.attr('class', 'information')
+					.selectAll('.infos')
+					.data(init_animation_title)
+					.enter()
+					.append('p')
+					.attr('class', 'infos')
+					.html(function (d, i) { return "<b>" + d + "</b>: " + init_animation_desc[i] + "<br>"; });
+					
+				d3.select('.information')
+					.append('p')
+					.html("<br>Data collected from: <a href=https://www.transtats.bts.gov/OT_Delay/OT_DelayCause1.asp>https://www.transtats.bts.gov/OT_Delay/OT_DelayCause1.asp</a><br><br>Information provided from: <a href=https://www.rita.dot.gov/bts/help/aviation/html/understanding.html>https://www.rita.dot.gov/bts/help/aviation/html/understanding.html</a><br><br>");
+					
+				animate([0,1,2,3]);
+
+			}
+			else {
+				info_h3.text(init_animation_title[init_idx]);
+				info_desc.html(init_animation_explain[init_idx]);
+				animate([init_idx]);
+			}				
+
+		};
+				
+	  };  
+	  
+      </script>
+  </head>
+<body>
+  <script type="text/javascript">
+  /*
+    Use D3 to load the Flights Data file
+    */
+    
+	d3.csv("ad_gathered_month_carrier.csv", draw);
+
+	
+  </script>
+</body>
+</html>
