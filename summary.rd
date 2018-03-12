@@ -1,3 +1,6 @@
+View Graphic Here:
+https://bl.ocks.org/mikectlm/raw/14ae0aed1660086b64582dbc9c5d8ba6/
+
 Summary
 The visualization contains data reported by U.S flight carriers on delayed flights for the entire 2016 year (a flight is considered delayed if it arrives 15 minutes or more after it's scheduled time). 
 There are five categories or reasons that carriers report that determine the delay: Air Carrier, National Aviation System, Weather and Security.
